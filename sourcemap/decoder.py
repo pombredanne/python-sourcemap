@@ -11,15 +11,20 @@ Original source under Apache license, see:
 :license: BSD, see LICENSE for more details.
 """
 import os
+import sys
 from functools import partial
 from .exceptions import SourceMapDecodeError
 from .objects import Token, SourceMapIndex
 try:
     import simplejson as json
 except ImportError:
-    import json  #NOQA
+    import json  # NOQA
 
-__all__ = ('SourceMapDecoder')
+__all__ = ('SourceMapDecoder',)
+
+# True if we are running on Python 3.
+PY3 = sys.version_info[0] == 3
+text_type = str if PY3 else unicode
 
 
 class SourceMapDecoder(object):
@@ -99,13 +104,13 @@ class SourceMapDecoder(object):
         # According to spec (https://docs.google.com/document/d/1U1RGAehQwRypUTovF1KRlpiOFze0b-_2gc6fAH0KY0k/edit#heading=h.h7yy76c5il9v)
         # A SouceMap may be prepended with ")]}'" to cause a Javascript error.
         # If the file starts with that string, ignore the entire first line.
-        if source[:3] == ')]}':
+        if source[:4] == ")]}'":
             source = source.split('\n', 1)[1]
 
         smap = json.loads(source)
         sources = smap['sources']
         sourceRoot = smap.get('sourceRoot')
-        names = smap['names']
+        names = list(map(text_type, smap['names']))
         mappings = smap['mappings']
         lines = mappings.split(';')
 
@@ -138,23 +143,43 @@ class SourceMapDecoder(object):
                 src = None
                 name = None
                 if len(parse) > 1:
-                    src_id += parse[1]
-                    src = sources[src_id]
-                    src_line += parse[2]
-                    src_col += parse[3]
+                    try:
+                        src_id += parse[1]
+                        if not 0 <= src_id < len(sources):
+                            raise SourceMapDecodeError(
+                                "Segment %s references source %d; there are "
+                                "%d sources" % (segment, src_id, len(sources))
+                            )
 
-                    if len(parse) > 4:
-                        name_id += parse[4]
-                        name = names[name_id]
+                        src = sources[src_id]
+                        src_line += parse[2]
+                        src_col += parse[3]
 
-                # lol for now
+                        if len(parse) > 4:
+                            name_id += parse[4]
+                            if not 0 <= name_id < len(names):
+                                raise SourceMapDecodeError(
+                                    "Segment %s references name %d; there are "
+                                    "%d names" % (segment, name_id, len(names))
+                                )
+
+                            name = names[name_id]
+                    except IndexError:
+                        raise SourceMapDecodeError(
+                            "Invalid segment %s, parsed as %r"
+                            % (segment, parse)
+                        )
+
                 try:
-                    assert dst_line >= 0
-                    assert dst_col >= 0
-                    assert src_line >= 0
-                    assert src_col >= 0
-                except AssertionError:
-                    raise SourceMapDecodeError
+                    assert dst_line >= 0, ('dst_line', dst_line)
+                    assert dst_col >= 0, ('dst_col', dst_col)
+                    assert src_line >= 0, ('src_line', src_line)
+                    assert src_col >= 0, ('src_col', src_col)
+                except AssertionError as e:
+                    raise SourceMapDecodeError(
+                        "Segment %s has negative %s (%d), in file %s"
+                        % (segment, e.message[0], e.message[1], src)
+                    )
 
                 token = Token(dst_line, dst_col, src, src_line, src_col, name)
                 tokens.append(token)

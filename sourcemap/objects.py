@@ -19,6 +19,9 @@ class Token(object):
         Source column number: src_col
         Name of the token: name
     """
+
+    __slots__ = ['dst_line', 'dst_col', 'src', 'src_line', 'src_col', 'name']
+
     def __init__(self, dst_line=0, dst_col=0, src='', src_line=0, src_col=0, name=None):
         self.dst_line = dst_line
         self.dst_col = dst_col
@@ -34,8 +37,7 @@ class Token(object):
         return unicode(self.name)
 
     def __eq__(self, other):
-        keys = ('dst_line', 'dst_col', 'src', 'src_line', 'src_col', 'name')
-        for key in keys:
+        for key in self.__slots__:
             if getattr(self, key) != getattr(other, key):
                 return False
         return True
